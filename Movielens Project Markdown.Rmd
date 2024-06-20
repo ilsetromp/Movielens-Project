@@ -1,5 +1,5 @@
 ---
-title: "Movielens Project"
+title: "MovieLens Project"
 author: "Ilse Tromp"
 date: "`r Sys.Date()`"
 output: html_document
@@ -9,22 +9,257 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# MovieLens Project
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+## Introduction
 
-```{r cars}
-summary(cars)
+In this project, the MovieLens dataset will be used to develop an algorithm that can serve as a movie recommendation system with an RMSE that will be as low as possible. MovieLens is a site run by the University of Minnesota. The data set that will be used for this project is the 10M dataset, consisting of 10 million ratings and 100,000 tag applications on 10,000 movies by 72,000 users. 
+
+### Loading the data set
+
+Before we get started we first load some packages.
+
+```r
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
 ```
 
-## Including Plots
+Now we download the files that contain the data.
 
-You can also embed plots, for example:
+```r
+dl <- "ml-10M100K.zip"
+if(!file.exists(dl))
+  download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+ratings_file <- "ml-10M100K/ratings.dat"
+if(!file.exists(ratings_file))
+  unzip(dl, ratings_file)
+
+movies_file <- "ml-10M100K/movies.dat"
+if(!file.exists(movies_file))
+  unzip(dl, movies_file)
+  ```
+Next, we make sure our ratings variable is split into several variables, 
+that these columns have the right names, and each variable is correctly defined as integer or numeric.
+
+```r
+ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
+                         stringsAsFactors = FALSE)
+colnames(ratings) <- c("userId", "movieId", "rating", "timestamp")
+ratings <- ratings %>%
+  mutate(userId = as.integer(userId),
+         movieId = as.integer(movieId),
+         rating = as.numeric(rating),
+         timestamp = as.integer(timestamp))
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Now, we do the same for the movies variable. Only movieID has to be defined as integer. 
+
+```r
+movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
+                        stringsAsFactors = FALSE)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- movies %>%
+  mutate(movieId = as.integer(movieId))
+```
+
+We can combine the data tables containing ratings and movies.
+
+```r
+movielens <- left_join(ratings, movies, by = "movieId")
+```
+
+We will split our data set into a training and test set, so we can test in the end how well our algorithm works.
+
+```r
+set.seed(1, sample.kind="Rounding") 
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+```
+Now we make sure this final test set also contains userID and movieID.
+
+```r
+final_holdout_test <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+  ```
+Now, we add the rows back into our edx data set that we removed whilst creating our final test set.
+
+```r
+removed <- anti_join(temp, final_holdout_test)
+edx <- rbind(edx, removed)
+```
+
+Finally, we transform the timestamp to a date:
+
+```r
+edx <- EDX %>%
+mutate(date = as_datetime(timestamp))
+```
+
+The edx dataset consists of 9000055 rows and 6 columns. These columns represent the following parameters: userID (for each individual who has rated movies), movieID (an ID for each movie), rating (the rating a movie received from a user), timestamp (time in seconds since 01-01-1970), title (the title of the movie plus the year the movie came out), and genres (to which genres a movie belongs).
+
+During this project, an algorithm will be developed that will estimate the rating (the variable that we would like to predict) based on the movie, genres, and user.
+
+## Exploratory data analysis
+
+We will start with analyzing the data the gain some insights.
+
+The number of movies per genre is:
+
+```{r, echo = FALSE}
+genres = c("Drama", "Comedy", "Thriller", "Romance")
+sapply(genres, function(g) {
+  sum(str_detect(edx$genres, g))
+})
+```
+
+The most rated movie is:
+
+```{r, echo = FALSE}
+edx %>%
+  group_by(title) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  slice(1)
+```
+
+When accounting for ratings, the top ten best rated movies with at least 10,000 ratings are:
+
+```{r, echo = FALSE}
+edx %>%
+  group_by(title) %>%
+  summarize(average_rating = mean(rating), n = n()) %>%
+  filter(n >= 10000) %>%
+  arrange(desc(average_rating)) %>%
+  top_n(10, average_rating)
+```
+
+When accounting for ratings, the top ten worst rated movies with at least 10,000 ratings are:
+
+```{r, echo = FALSE}
+edx %>%
+  group_by(title) %>%
+  summarize(average_rating = mean(rating), n = n()) %>%
+  filter(n >= 10000) %>%
+  arrange(average_rating) %>%
+  top_n(-10, average_rating)
+```
+
+The distribution of ratings can be viewed in this plot:
+
+```{r, echo = FALSE}
+edx %>% ggplot(aes(rating)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black") +
+  labs(title = "Distribution of Ratings", x = "Rating", y = "Count")
+```
+
+You can see that whole ratings (1, 2, 3, 4, and 5) are given more often than half ratings (0.5, 1.5, 2.5, 3.5, and 4.5).
+
+Average user ratings:
+
+The number of ratings per user can be viewed in this plot:
+
+```{r, echo = FALSE}
+edx %>% 
+  count(userId) %>%
+  ggplot(aes(x = n)) +
+  geom_bar(color = "black") +
+  labs(title = "Number of Ratings per User", x = "Number of Ratings", y = "Count") +
+  scale_x_continuous(trans = "log10")
+```
+
+The number of ratings per movie can be viewed in this plot:
+
+```{r, echo = FALSE}
+edx %>% 
+  count(movieId) %>%
+  ggplot(aes(x = n)) +
+  geom_bar(color = "black") +
+  labs(title = "Number of Ratings per Movie", x = "Number of Ratings", y = "Count") +
+  scale_x_continuous(trans = "log10")
+```
+
+## Data handling
+
+When checking the data for missing values, 
+
+``` {r, echo is FALSE}
+sum(is.na(edx))
+
+colSums(is.na(edx))
+```
+
+No missing values are found. So, there is no need to account for missing values.
+
+
+## Model development
+
+In search for the best possible algorithm, several models will be assessed and evaluated. First, a baseline model will be build to compare the more advanced models to. 
+
+### Baseline model
+
+For this baseline model, the average rating across all movies 
+
+The average rating is:
+
+```{r, echo = FALSE}
+mu <- mean(edx$rating)
+
+mu
+```
+
+The baseline model has the equation:
+
+$Y = \mu + \varepsilon$
+
+In code this looks like:
+
+```r
+baseline_model <- rep(mu, nrow(final_holdout_test))
+```
+
+RMSE of this baseline model is:
+
+```{r, echo=FALSE}
+RMSE_baseline <- RMSE(final_holdout_test$rating, baseline_model)
+
+RMSE_baseline
+```
+This is a quite poor RMSE, so with the following models we will try to improve this. 
+
+
+### Regularization
+
+When making a model using both the userId and movieId effect, we can also account for total variability of the movie effect by adding a penalty.
+The formula for the penalty would be:
+
+$$
+\sum_{i,j} (y_{u,i} - \mu - \alpha_i - \beta_j)^2 + \lambda \sum_{j} \beta_j^2
+$$
+With the formula for the values of Beta being:
+
+$$
+\hat{\beta}_j(\lambda) = \frac{1}{\lambda + n_j} \sum_{i=1}^{n_i} (Y_{i,j} - \mu - \alpha_i)
+$$
+
+### Matrix factorization
+
+### k-nearest neighbours
+
+### Random forest
+
+### Ensemble model
+
+### Results and evaluation
+
+## Conclusion
+
+## References
+
+https://movielens.org/info/about
