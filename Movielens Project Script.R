@@ -3,6 +3,7 @@ library(caret)
 library(ggplot2)
 library(dplyr)
 library(lubridate)
+library(treemapify)
 
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
@@ -72,6 +73,22 @@ genres = edx$genres
 sapply(genres, function(g) {
   sum(str_detect(edx$genres, g))
 })
+
+# Treemap of all genres
+# Split genres into individual genres
+genres_split <- edx %>%
+  separate_rows(genres, sep = "\\|")
+# Number of movies per genre
+genre_count <- genres_split %>%
+  group_by(genres) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
+# Creating a treemap
+ggplot(genre_count, aes(area = count, fill = genres, label = genres)) +
+  geom_treemap() +
+  geom_treemap_text(colour = "white", place = "centre", grow = TRUE) +
+  labs(title = "Treemap of Movie Genres", fill = "Genre") +
+  theme_minimal()
 
 # Most rated movie
 edx %>%
@@ -143,11 +160,9 @@ mu <- mean(edx$rating)
 mu
 
 # Use average in baseline model
-
 baseline_model <- rep(mu, nrow(final_holdout_test))
 
 # Calculate RMSE
-
 RMSE_baseline <- RMSE(final_holdout_test$rating, baseline_model)
 
 RMSE_baseline
@@ -155,19 +170,51 @@ RMSE_baseline
 
 ## Regularization
 
+# Create different values for Lambda
+Lambdas <- seq(0, 15, 0.2)
+
+# Calculate RMSE for each Lambda
+rmse <- sapply(Lambdas, function(Lambda){
+  
+  # calculating the mean
+  mu <- mean(edx$rating)
+  
+  # calculating movie effect
+  a_i <- edx %>% 
+    group_by(movieId) %>%
+    summarize(a_i = sum(rating - mu)/(n()+Lambda))
+  
+  # calculating user effect
+  b_u <- edx %>% 
+    left_join(a_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - a_i - mu)/(n()+Lambda))
+  
+  # calculating modelled ratings
+  modelled_ratings <- edx %>% 
+    left_join(a_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    mutate(pred_rating = mu + a_i + b_u) %>%
+    pull(pred_rating)
+  
+  # return RMSE
+  return(RMSE(modelled_ratings, edx$rating))
+  
+})
+
+# Plot Lambdas vs RMSEs
+plot(Lambdas, rmse)
+
+# Which Lambda gives the lowest RMSE?
+best_Lambda <- Lambdas[which.min(rmse)]
 
 
-## Matrix factorization
 
-## k-nearest neighbours
-
-## Random forest
-
-## Ensemble model
+## Cross validation
 
 
 # Results and evaluation
 
-
+## Table of different RMSEs
 
 

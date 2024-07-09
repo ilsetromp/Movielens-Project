@@ -119,6 +119,16 @@ sapply(genres, function(g) {
 })
 ```
 
+This treemap is a visualization of the movies per genre:
+
+```{r, echo=FALSE}
+ggplot(genre_count, aes(area = count, fill = genres, label = genres)) +
+  geom_treemap() +
+  geom_treemap_text(colour = "white", place = "centre", grow = TRUE) +
+  labs(title = "Treemap of Movie Genres", fill = "Genre") +
+  theme_minimal()
+```
+
 The most rated movie is:
 
 ```{r, echo = FALSE}
@@ -236,7 +246,7 @@ This is a quite poor RMSE, so with the following models we will try to improve t
 
 ### Regularization
 
-When making a model using both the userId and movieId effect, we can also account for total variability of the movie effect by adding a penalty.
+When making a model using both the userId and movieId effect, we can also account for total variability of movie and user effects by adding penalties.
 The formula for the penalty would be:
 
 $$
@@ -247,6 +257,46 @@ With the formula for the values of Beta being:
 $$
 \hat{\beta}_j(\lambda) = \frac{1}{\lambda + n_j} \sum_{i=1}^{n_i} (Y_{i,j} - \mu - \alpha_i)
 $$
+Before we can use this model, we need to calculate the optimal value for Lambda. We will calculate the RMSE for each value of Lambda and see which Lambda produces the lowest RMSE.
+
+In this piece of code
+```{r}
+Lambdas <- seq(0, 15, 0.2)
+
+rmse <- sapply(Lambdas, function(Lambda){
+ 
+  mu <- mean(edx$rating)
+  
+  a_i <- edx %>% 
+    group_by(movieId) %>%
+    summarize(a_i = sum(rating - mu)/(n()+Lambda))
+ 
+  b_u <- edx %>% 
+    left_join(a_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - a_i - mu)/(n()+Lambda))
+  
+  modelled_ratings <- edx %>% 
+    left_join(a_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    mutate(pred_rating = mu + a_i + b_u) %>%
+    pull(pred_rating)
+
+  return(RMSE(modelled_ratings, edx$rating))
+  
+})
+```
+
+We can plot the Lambdas against each RMSE
+```{r, echo=FALSE}
+plot(Lambdas, rmse)
+```
+
+In the plot, we can see that the lowest RMSE is with Lambda:
+```{r, echo=FALSE}
+best_Lambda <- Lambdas[which.min(rmse)]
+```
+
 
 ### Matrix factorization
 
