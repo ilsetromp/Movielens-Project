@@ -4,6 +4,10 @@ library(ggplot2)
 library(dplyr)
 library(lubridate)
 library(treemapify)
+library(reshape2)
+library(missMDA)
+library(Matrix)
+
 
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
@@ -148,11 +152,7 @@ colSums(is.na(edx))
 
 # Model development
 
-### Different models will be built and evaluated. 
-
 ## Baseline model
-
-### We start by developing a baseline model using the average rating.
 
 # Calculating average rating
 mu <- mean(edx$rating)
@@ -203,15 +203,118 @@ rmse <- sapply(Lambdas, function(Lambda){
 })
 
 # Plot Lambdas vs RMSEs
-plot(Lambdas, rmse)
+plot(Lambdas, rmse, type = "b", col = "blue", pch = 19, xlab = "Lambda", ylab = "RMSE",
+     main = "RMSE vs Lambda for Regularized Bias")
+
+points(best_Lambda, best_RMSE, col = "red", pch = 19, cex = 2)
+text(best_Lambda, best_RMSE, labels = paste0("Lambda=", best_Lambda, "\nRMSE=", 
+round(best_RMSE, 4)), pos = 3, col = "red", offset = 1, adj = c(1, 1))
+
 
 # Which Lambda gives the lowest RMSE?
 best_Lambda <- Lambdas[which.min(rmse)]
+best_RMSE <- min(rmse)
+
+print(paste("Best Lambda:", best_Lambda))
+print(paste("Best RMSE:", best_RMSE))
+
+## Matrix factorization
+
+# Filter out users with fewer than 100 ratings and movies with fewer than 100 ratings
+min_ratings <- 100
+filtered_edx <- edx %>%
+  group_by(userId) %>%
+  filter(n() >= min_ratings) %>%
+  ungroup() %>%
+  group_by(movieId) %>%
+  filter(n() >= min_ratings) %>%
+  ungroup()
+
+# Create a user-item matrix
+y <- filtered_edx %>%
+  select(userId, movieId, rating) %>%
+  pivot_wider(names_from = movieId, values_from = rating) %>%
+  column_to_rownames("userId") %>%
+  as.matrix()
+
+lambda <- 0.1  # Set regularization parameter
+imputed <- imputePCA(y, ncp = 2, coeff.ridge = lambda)
+
+# Perform SVD on the imputed complete data
+svd_res <- svd(imputed$completeObs)
+
+# Get the predicted values
+pred_svd <- svd_res$u %*% diag(svd_res$d) %*% t(svd_res$v)
+
+# Prepare the test data
+y_test <- final_holdout_test %>%
+  select(userId, movieId, rating) %>%
+  pivot_wider(names_from = movieId, values_from = rating) %>%
+  column_to_rownames("userId") %>%
+  as.matrix()
+
+# Define a function to clamp the predictions within the range of valid ratings
+clamp <- function(x, lower = 0.5, upper = 5) {
+  pmin(pmax(x, lower), upper)
+}
+
+# Clamp the predicted values
+pred_svd_clamped <- clamp(pred_svd)
+
+# Calculate RMSE for the baseline model
+mu <- mean(filtered_edx$rating)
+baseline_pred <- matrix(mu, nrow = nrow(y), ncol = ncol(y))
+rownames(baseline_pred) <- rownames(y)
+colnames(baseline_pred) <- colnames(y)
+rmse_baseline <- RMSE(y_test, baseline_pred[rownames(y_test), colnames(y_test)])
+print(paste("Baseline RMSE:", rmse_baseline))
+
+# Calculate RMSE for the SVD model
+rmse_svd <- RMSE(y_test, pred_svd_clamped[rownames(y_test), colnames(y_test)])
+print(paste("Matrix Factorization RMSE (SVD):", rmse_svd))
 
 
 
-## Cross validation
+library(recosystem)
 
+# Prepare the edx data for recosystem
+edx_ratings <- edx %>% select(userId, movieId, rating)
+test_ratings <- final_holdout_test %>% select(userId, movieId, rating)
+
+# Save the data to temporary files
+write.table(edx_ratings, file = "train_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
+write.table(test_ratings, file = "test_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
+
+# Initialize the recommender model
+reco <- Reco()
+
+# Load the training data
+train_data <- data_file("train_data.txt")
+
+# Train the model using ALS
+reco$train(train_data, opts = list(dim = 20, lrate = 0.1, costp_l2 = 0.01, costq_l2 = 0.01, niter = 20))
+
+# Load the test data
+test_data <- data_file("test_data.txt")
+
+# Make predictions
+predictions <- tempfile()
+reco$predict(test_data, out_file(predictions))
+
+# Load the predictions
+predicted_ratings <- scan(predictions)
+
+# Combine the actual and predicted ratings
+predicted_ratings_df <- cbind(test_ratings, predicted_rating = predicted_ratings)
+
+# Calculate RMSE for the matrix factorization model
+RMSE_matrix_factorization <- RMSE(predicted_ratings_df$rating, predicted_ratings_df$predicted_rating)
+
+# Print the RMSE
+print(paste("Matrix Factorization RMSE:", RMSE_matrix_factorization))
+
+
+### Cross validation
 
 # Results and evaluation
 

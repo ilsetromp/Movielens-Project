@@ -30,7 +30,7 @@ library(lubridate)
 
 Now we download the files that contain the data.
 
-```r
+```{r, echo = TRUE}
 dl <- "ml-10M100K.zip"
 if(!file.exists(dl))
   download.file("https://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
@@ -46,7 +46,7 @@ if(!file.exists(movies_file))
 Next, we make sure our ratings variable is split into several variables, 
 that these columns have the right names, and each variable is correctly defined as integer or numeric.
 
-```r
+```{r, echo = TRUE}
 ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
                          stringsAsFactors = FALSE)
 colnames(ratings) <- c("userId", "movieId", "rating", "timestamp")
@@ -59,7 +59,7 @@ ratings <- ratings %>%
 
 Now, we do the same for the movies variable. Only movieID has to be defined as integer. 
 
-```r
+```{r, echo = TRUE}
 movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
                         stringsAsFactors = FALSE)
 colnames(movies) <- c("movieId", "title", "genres")
@@ -69,13 +69,13 @@ movies <- movies %>%
 
 We can combine the data tables containing ratings and movies.
 
-```r
+```{r, echo = TRUE}
 movielens <- left_join(ratings, movies, by = "movieId")
 ```
 
 We will split our data set into a training and test set, so we can test in the end how well our algorithm works.
 
-```r
+```{r, echo = TRUE}
 set.seed(1, sample.kind="Rounding") 
 test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
 edx <- movielens[-test_index,]
@@ -83,21 +83,21 @@ temp <- movielens[test_index,]
 ```
 Now we make sure this final test set also contains userID and movieID.
 
-```r
+```{r, echo = TRUE}
 final_holdout_test <- temp %>% 
   semi_join(edx, by = "movieId") %>%
   semi_join(edx, by = "userId")
   ```
 Now, we add the rows back into our edx data set that we removed whilst creating our final test set.
 
-```r
+```{r, echo = TRUE}
 removed <- anti_join(temp, final_holdout_test)
 edx <- rbind(edx, removed)
 ```
 
 Finally, we transform the timestamp to a date:
 
-```r
+```{r, echo=TRUE}
 edx <- EDX %>%
 mutate(date = as_datetime(timestamp))
 ```
@@ -230,7 +230,7 @@ $Y = \mu + \varepsilon$
 
 In code this looks like:
 
-```r
+```{r, echo=TRUE}
 baseline_model <- rep(mu, nrow(final_holdout_test))
 ```
 
@@ -289,22 +289,69 @@ rmse <- sapply(Lambdas, function(Lambda){
 
 We can plot the Lambdas against each RMSE
 ```{r, echo=FALSE}
-plot(Lambdas, rmse)
+plot(Lambdas, rmse, type = "b", col = "blue", pch = 19, xlab = "Lambda", ylab = "RMSE",
+     main = "RMSE vs Lambda for Regularized Bias")
+
+points(best_Lambda, best_RMSE, col = "red", pch = 19, cex = 2)
+text(best_Lambda, best_RMSE, labels = paste0("Lambda=", best_Lambda, "\nRMSE=", 
+round(best_RMSE, 4)), pos = 3, col = "red", offset = 1, adj = c(1, 1))
+
 ```
 
 In the plot, we can see that the lowest RMSE is with Lambda:
 ```{r, echo=FALSE}
 best_Lambda <- Lambdas[which.min(rmse)]
+best_RMSE <- min(rmse)
+
+print(paste("Best Lambda:", best_Lambda))
+print(paste("Best RMSE:", best_RMSE))
 ```
 
 
 ### Matrix factorization
 
-### k-nearest neighbours
+The next model we will use is matrix factorization. 
+Before we can apply this method, we will filter the data to ensure we will not run into any issues. We will do this by filtering out any users or movies with less than 50 ratings.
 
-### Random forest
 
-### Ensemble model
+
+
+
+Next, we will convert the data into a matrix. This can be done with the following code:
+
+```{r, echo=TRUE}
+rating_matrix <- as.matrix(acast(edx, userId ~ movieId, value.var = "rating"))
+
+rating_matrix <- as(rating_matrix, "realRatingMatrix")
+```
+
+The specific matrix factorization method we will use, is singular value decomposition, or SVD for short. 
+
+#### Singular Value Decomposition
+
+We start by setting parameters. Once we have done this, we can create an SVD model. 
+```{r, echo=true}
+# Set the parameters for SVD
+svd_parameters <- list(k = 20)
+
+# Creating a model using SVD
+svd_model <- Recommender(rating_matrix, method = "SVD", parameter = svd_parameters)
+
+# Predict ratings for the full dataset
+predicted_ratings <- predict(svd_model, rating_matrix, type = "ratings")
+
+# Converting the predictions to a matrix
+ratings_matrix <- as(predicted_ratings, "matrix")
+```
+This model results in this RMSE:
+```{r, echo=FALSE}
+actual_ratings <- as(rating_matrix, "matrix")
+rmse_svd <- sqrt(mean((actual_ratings - predicted_ratings_matrix)^2, na.rm = TRUE))
+
+print(paste("RMSE for SVD without Cross-Validation:", rmse_svd))
+```
+
+#### Cross-validation
 
 ### Results and evaluation
 
@@ -313,3 +360,5 @@ best_Lambda <- Lambdas[which.min(rmse)]
 ## References
 
 https://movielens.org/info/about
+
+Irizarry, Rafael A., “Introduction to Data Science: Data Analysis and Prediction Algorithms in R”
