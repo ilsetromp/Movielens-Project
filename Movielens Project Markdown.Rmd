@@ -2,12 +2,26 @@
 title: "MovieLens Project"
 author: "Ilse Tromp"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(stringr) 
+library(readr)
+library(tinytex)
+library(rmarkdown)
+library(knitr)
+library(tidyverse)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(treemapify)
+library(reshape2)
+library(recosystem)
 ```
 
 # MovieLens Project
@@ -104,7 +118,7 @@ edx <- rbind(edx, removed)
 Finally, we transform the timestamp to a date:
 
 ```{r, echo=TRUE}
-edx <- EDX %>%
+edx <- edx %>%
 mutate(date = as_datetime(timestamp))
 ```
 
@@ -119,10 +133,18 @@ We will start with analyzing the data the gain some insights.
 The number of movies per genre is:
 
 ```{r, echo = FALSE}
+genres_split <- edx %>%
+  separate_rows(genres, sep = "\\|")
+
 genres = c("Drama", "Comedy", "Thriller", "Romance")
 sapply(genres, function(g) {
   sum(str_detect(edx$genres, g))
 })
+
+genre_count <- genres_split %>%
+  group_by(genres) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count))
 ```
 
 This treemap is a visualization of the movies per genre:
@@ -293,6 +315,10 @@ rmse <- sapply(Lambdas, function(Lambda){
 We can plot the Lambdas against each RMSE
 
 ```{r, echo=FALSE}
+
+best_Lambda <- Lambdas[which.min(rmse)]
+best_RMSE <- min(rmse)
+
 plot(Lambdas, rmse, type = "b", col = "blue", pch = 19, xlab = "Lambda", ylab = "RMSE",
      main = "RMSE vs Lambda for Regularized Bias")
 
@@ -305,11 +331,11 @@ round(best_RMSE, 4)), pos = 3, col = "red", offset = 1, adj = c(1, 1))
 In the plot, we can see that the lowest RMSE is with Lambda:
 
 ```{r, echo=FALSE}
-best_Lambda <- Lambdas[which.min(rmse)]
-best_RMSE <- min(rmse)
 
 print(paste("Best Lambda:", best_Lambda))
 print(paste("Best RMSE:", best_RMSE))
+
+RMSE_regularization <- best_RMSE
 ```
 
 ### Matrix factorization
@@ -376,6 +402,34 @@ During this project, we investigated three different models: the baseline model,
 The different RMSEs of the different models can be viewed in this table:
 
 ```{r, echo = FALSE}
+results <- data.frame(
+  Model = character(),
+  RMSE = numeric(),
+  Parameters = character(),
+  stringsAsFactors = FALSE
+)
+
+# Add baseline model
+results <- rbind(results, data.frame(
+  Model = "Baseline Model",
+  RMSE = RMSE_baseline,
+  Parameters = "mu"
+))
+
+# Add regularization model
+results <- rbind(results, data.frame(
+  Model = "Regularization Model",
+  RMSE = RMSE_regularization,
+  Parameters = paste("Lambda =", best_Lambda)
+))
+
+# Add matrix factorization model
+results <- rbind(results, data.frame(
+  Model = "Matrix Factorization Model",
+  RMSE = RMSE_matrix_factorization,
+  Parameters = "N.A."
+))
+
 kable(results, caption = "RMSEs of All Investigated Models")
 ```
 
