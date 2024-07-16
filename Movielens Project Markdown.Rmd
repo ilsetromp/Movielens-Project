@@ -9,18 +9,17 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 # MovieLens Project
 
 ## Introduction
 
-In this project, the MovieLens dataset will be used to develop an algorithm that can serve as a movie recommendation system with an RMSE that will be as low as possible. MovieLens is a site run by the University of Minnesota. The data set that will be used for this project is the 10M dataset, consisting of 10 million ratings and 100,000 tag applications on 10,000 movies by 72,000 users. 
+In this project, the MovieLens dataset will be used to develop an algorithm that can serve as a movie recommendation system with an RMSE that will be as low as possible. MovieLens is a site run by the University of Minnesota. The data set that will be used for this project is the 10M dataset, consisting of 10 million ratings and 100,000 tag applications on 10,000 movies by 72,000 users.
 
 ### Loading the data set
 
 Before we get started we first load some packages.
 
-```r
+``` r
 library(tidyverse)
 library(caret)
 library(ggplot2)
@@ -46,9 +45,9 @@ if(!file.exists(ratings_file))
 movies_file <- "ml-10M100K/movies.dat"
 if(!file.exists(movies_file))
   unzip(dl, movies_file)
-  ```
-Next, we make sure our ratings variable is split into several variables, 
-that these columns have the right names, and each variable is correctly defined as integer or numeric.
+```
+
+Next, we make sure our ratings variable is split into several variables, that these columns have the right names, and each variable is correctly defined as integer or numeric.
 
 ```{r, echo = TRUE}
 ratings <- as.data.frame(str_split(read_lines(ratings_file), fixed("::"), simplify = TRUE),
@@ -61,7 +60,7 @@ ratings <- ratings %>%
          timestamp = as.integer(timestamp))
 ```
 
-Now, we do the same for the movies variable. Only movieID has to be defined as integer. 
+Now, we do the same for the movies variable. Only movieID has to be defined as integer.
 
 ```{r, echo = TRUE}
 movies <- as.data.frame(str_split(read_lines(movies_file), fixed("::"), simplify = TRUE),
@@ -85,13 +84,15 @@ test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list
 edx <- movielens[-test_index,]
 temp <- movielens[test_index,]
 ```
+
 Now we make sure this final test set also contains userID and movieID.
 
 ```{r, echo = TRUE}
 final_holdout_test <- temp %>% 
   semi_join(edx, by = "movieId") %>%
   semi_join(edx, by = "userId")
-  ```
+```
+
 Now, we add the rows back into our edx data set that we removed whilst creating our final test set.
 
 ```{r, echo = TRUE}
@@ -201,9 +202,9 @@ edx %>%
 
 ## Data handling
 
-When checking the data for missing values, 
+When checking the data for missing values,
 
-``` {r, echo is FALSE}
+```{r, echo is FALSE}
 sum(is.na(edx))
 
 colSums(is.na(edx))
@@ -211,14 +212,13 @@ colSums(is.na(edx))
 
 No missing values are found. So, there is no need to account for missing values.
 
-
 ## Model development
 
-In search for the best possible algorithm, several models will be assessed and evaluated. First, a baseline model will be build to compare the more advanced models to. 
+In search for the best possible algorithm, several models will be assessed and evaluated. First, a baseline model will be build to compare the more advanced models to.
 
 ### Baseline model
 
-For this baseline model, the average rating across all movies 
+For this baseline model, the average rating across all movies
 
 The average rating is:
 
@@ -245,25 +245,23 @@ RMSE_baseline <- RMSE(final_holdout_test$rating, baseline_model)
 
 RMSE_baseline
 ```
-This is a quite poor RMSE, so with the following models we will try to improve this. 
 
+This is a quite poor RMSE, so with the following models we will try to improve this.
 
 ### Regularization
 
-When making a model using both the userId and movieId effect, we can also account for total variability of movie and user effects by adding penalties.
-The formula for the penalty would be:
+When making a model using both the userId and movieId effect, we can also account for total variability of movie and user effects by adding penalties. The formula for the penalty would be:
 
 $$
 \sum_{i,j} (y_{u,i} - \mu - \alpha_i - \beta_j)^2 + \lambda \sum_{j} \beta_j^2
-$$
-With the formula for the values of Beta being:
+$$ With the formula for the values of Beta being:
 
 $$
 \hat{\beta}_j(\lambda) = \frac{1}{\lambda + n_j} \sum_{i=1}^{n_i} (Y_{i,j} - \mu - \alpha_i)
-$$
-Before we can use this model, we need to calculate the optimal value for Lambda. We will calculate the RMSE for each value of Lambda and see which Lambda produces the lowest RMSE.
+$$ Before we can use this model, we need to calculate the optimal value for Lambda. We will calculate the RMSE for each value of Lambda and see which Lambda produces the lowest RMSE.
 
 In this piece of code
+
 ```{r}
 Lambdas <- seq(0, 15, 0.2)
 
@@ -292,6 +290,7 @@ rmse <- sapply(Lambdas, function(Lambda){
 ```
 
 We can plot the Lambdas against each RMSE
+
 ```{r, echo=FALSE}
 plot(Lambdas, rmse, type = "b", col = "blue", pch = 19, xlab = "Lambda", ylab = "RMSE",
      main = "RMSE vs Lambda for Regularized Bias")
@@ -303,6 +302,7 @@ round(best_RMSE, 4)), pos = 3, col = "red", offset = 1, adj = c(1, 1))
 ```
 
 In the plot, we can see that the lowest RMSE is with Lambda:
+
 ```{r, echo=FALSE}
 best_Lambda <- Lambdas[which.min(rmse)]
 best_RMSE <- min(rmse)
@@ -311,24 +311,23 @@ print(paste("Best Lambda:", best_Lambda))
 print(paste("Best RMSE:", best_RMSE))
 ```
 
-
 ### Matrix factorization
 
-The next model we will use is matrix factorization. The specific type of matrix factorization we will use, is called alternating least squares (ALS). This method should be suited for working with large datasets, like the edx data set. The package we will use to perform ALS is the recosystem package. However, before we can use the reco function, we need to prepare the data and select the variables we need. 
+The next model we will use is matrix factorization. The specific type of matrix factorization we will use, is called alternating least squares (ALS). This method should be suited for working with large datasets, like the edx data set. The package we will use to perform ALS is the recosystem package. However, before we can use the reco function, we need to prepare the data and select the variables we need.
 
 ```{r, echo = TRUE}
 edx_ratings <- edx %>% select(userId, movieId, rating)
 test_ratings <- final_holdout_test %>% select(userId, movieId, rating)
 ```
 
-Since I am working on an older laptop, I am saving the data into temporary text files to manage memory size. 
+Since I am working on an older laptop, I am saving the data into temporary text files to manage memory size.
 
 ```{r, echo = TRUE}
 write.table(edx_ratings, file = "training_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
 write.table(test_ratings, file = "test_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
 ```
 
-Now, we initialize the reco model and load the training data. 
+Now, we initialize the reco model and load the training data.
 
 ```{r, echo = TRUE}
 reco <- Reco()
@@ -336,14 +335,13 @@ reco <- Reco()
 training_data <- data_file("training_data.txt")
 ```
 
-Next, we use ALS to train the model by using the reco$train function.
-We start using moderate values for the parameters to prevent overfitting of the model. We will check how this model performs. If it underfits, we can adjust these values. 
+Next, we use ALS to train the model by using the reco\$train function. We start using moderate values for the parameters to prevent overfitting of the model. We will check how this model performs. If it underfits, we can adjust these values.
 
 ```{r, echo = TRUE}
 reco$train(training_data, opts = list(dim = 20, lrate = 0.1, costp_l2 = 0.01, costq_l2 = 0.01, niter = 20))
 ```
 
-We can load the test data and make predictions by using the reco$predict function. 
+We can load the test data and make predictions by using the reco\$predict function.
 
 ```{r, echo = TRUE}
 test_data <- data_file("test_data.txt")
@@ -354,7 +352,7 @@ reco$predict(test_data, out_file(predictions))
 predicted_ratings <- scan(predictions)
 ```
 
-Lastly, we combine the actual and the predicted ratings into a data frame and calculate the RMSE. 
+Lastly, we combine the actual and the predicted ratings into a data frame and calculate the RMSE.
 
 ```{r, echo = TRUE}
 predicted_ratings_df <- cbind(test_ratings, predicted_rating = predicted_ratings)
@@ -363,6 +361,7 @@ RMSE_matrix_factorization <- RMSE(predicted_ratings_df$rating, predicted_ratings
 ```
 
 Matrix factorization using ALS results in an RMSE of:
+
 ```{r, echo = FALSE}
 print(paste("Matrix Factorization RMSE:", RMSE_matrix_factorization))
 ```
@@ -371,28 +370,28 @@ This RMSE shows that the model has probably not under or over fitted.
 
 ### Results and evaluation
 
-During this project, we investigated three different models: the baseline model, a regularization model, and a matrix factorization model. 
+During this project, we investigated three different models: the baseline model, a regularization model, and a matrix factorization model.
 
 The different RMSEs of the different models can be viewed in this table:
 
 ```{r, echo = FALSE}
 kable(results, caption = "RMSEs of All Investigated Models")
 ```
-The baseline model had an RMSE of 1.06, which is quite poor. The next model we tested was the regularization model by accounting for both user en movie effect. This model performed better with an RMSE of 0.857. The last model we tested was the matrix factorization model with ALS. This model performed the best with an RMSE of 0.793.
 
+The baseline model had an RMSE of 1.06, which is quite poor. The next model we tested was the regularization model by accounting for both user en movie effect. This model performed better with an RMSE of 0.857. The last model we tested was the matrix factorization model with ALS. This model performed the best with an RMSE of 0.793.
 
 ## Conclusion
 
-The regularization and matrix factorization models performed significantly better compared to the baseline model. The matrix factorization model's RMSE was even better than the winning RMSE of the Netflix challenge in 2009. 
+The regularization and matrix factorization models performed significantly better compared to the baseline model. The matrix factorization model's RMSE was even better than the winning RMSE of the Netflix challenge in 2009.
 
-During this project, limited models were tested due to computing power. If more computing power would have been accessible, methods such as random forest, K-nearest neighbours, linear models, or ensemble models could have been tested. 
+During this project, limited models were tested due to computing power. If more computing power would have been accessible, methods such as random forest, K-nearest neighbours, linear models, or ensemble models could have been tested.
 
-Nevertheless, the results obtained during this project show a significant improvement of the RMSE. 
+Nevertheless, the results obtained during this project show a significant improvement of the RMSE.
 
 ## References
 
-https://movielens.org/info/about
+<https://movielens.org/info/about>
 
 Irizarry, Rafael A., “Introduction to Data Science: Data Analysis and Prediction Algorithms in R”
 
-Koren, Y., 2009. The BellKor Solution to the Netflix Grand Prize. 
+Koren, Y., 2009. The BellKor Solution to the Netflix Grand Prize.
