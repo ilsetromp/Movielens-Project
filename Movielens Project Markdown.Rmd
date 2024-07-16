@@ -26,6 +26,10 @@ library(caret)
 library(ggplot2)
 library(dplyr)
 library(lubridate)
+library(treemapify)
+library(reshape2)
+library(recosystem)
+library(knitr)
 ```
 
 Now we download the files that contain the data.
@@ -310,55 +314,85 @@ print(paste("Best RMSE:", best_RMSE))
 
 ### Matrix factorization
 
-The next model we will use is matrix factorization. 
-Before we can apply this method, we will filter the data to ensure we will not run into any issues. We will do this by filtering out any users or movies with less than 50 ratings.
+The next model we will use is matrix factorization. The specific type of matrix factorization we will use, is called alternating least squares (ALS). This method should be suited for working with large datasets, like the edx data set. The package we will use to perform ALS is the recosystem package. However, before we can use the reco function, we need to prepare the data and select the variables we need. 
 
-
-
-
-
-Next, we will convert the data into a matrix. This can be done with the following code:
-
-```{r, echo=TRUE}
-rating_matrix <- as.matrix(acast(edx, userId ~ movieId, value.var = "rating"))
-
-rating_matrix <- as(rating_matrix, "realRatingMatrix")
+```{r, echo = TRUE}
+edx_ratings <- edx %>% select(userId, movieId, rating)
+test_ratings <- final_holdout_test %>% select(userId, movieId, rating)
 ```
 
-The specific matrix factorization method we will use, is singular value decomposition, or SVD for short. 
+Since I am working on an older laptop, I am saving the data into temporary text files to manage memory size. 
 
-#### Singular Value Decomposition
-
-We start by setting parameters. Once we have done this, we can create an SVD model. 
-```{r, echo=true}
-# Set the parameters for SVD
-svd_parameters <- list(k = 20)
-
-# Creating a model using SVD
-svd_model <- Recommender(rating_matrix, method = "SVD", parameter = svd_parameters)
-
-# Predict ratings for the full dataset
-predicted_ratings <- predict(svd_model, rating_matrix, type = "ratings")
-
-# Converting the predictions to a matrix
-ratings_matrix <- as(predicted_ratings, "matrix")
-```
-This model results in this RMSE:
-```{r, echo=FALSE}
-actual_ratings <- as(rating_matrix, "matrix")
-rmse_svd <- sqrt(mean((actual_ratings - predicted_ratings_matrix)^2, na.rm = TRUE))
-
-print(paste("RMSE for SVD without Cross-Validation:", rmse_svd))
+```{r, echo = TRUE}
+write.table(edx_ratings, file = "training_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
+write.table(test_ratings, file = "test_data.txt", sep = " ", row.names = FALSE, col.names = FALSE)
 ```
 
-#### Cross-validation
+Now, we initialize the reco model and load the training data. 
+
+```{r, echo = TRUE}
+reco <- Reco()
+
+training_data <- data_file("training_data.txt")
+```
+
+Next, we use ALS to train the model by using the reco$train function.
+We start using moderate values for the parameters to prevent overfitting of the model. We will check how this model performs. If it underfits, we can adjust these values. 
+
+```{r, echo = TRUE}
+reco$train(training_data, opts = list(dim = 20, lrate = 0.1, costp_l2 = 0.01, costq_l2 = 0.01, niter = 20))
+```
+
+We can load the test data and make predictions by using the reco$predict function. 
+
+```{r, echo = TRUE}
+test_data <- data_file("test_data.txt")
+
+predictions <- tempfile()
+reco$predict(test_data, out_file(predictions))
+
+predicted_ratings <- scan(predictions)
+```
+
+Lastly, we combine the actual and the predicted ratings into a data frame and calculate the RMSE. 
+
+```{r, echo = TRUE}
+predicted_ratings_df <- cbind(test_ratings, predicted_rating = predicted_ratings)
+
+RMSE_matrix_factorization <- RMSE(predicted_ratings_df$rating, predicted_ratings_df$predicted_rating)
+```
+
+Matrix factorization using ALS results in an RMSE of:
+```{r, echo = FALSE}
+print(paste("Matrix Factorization RMSE:", RMSE_matrix_factorization))
+```
+
+This RMSE shows that the model has probably not under or over fitted.
 
 ### Results and evaluation
 
+During this project, we investigated three different models: the baseline model, a regularization model, and a matrix factorization model. 
+
+The different RMSEs of the different models can be viewed in this table:
+
+```{r, echo = FALSE}
+kable(results, caption = "RMSEs of All Investigated Models")
+```
+The baseline model had an RMSE of 1.06, which is quite poor. The next model we tested was the regularization model by accounting for both user en movie effect. This model performed better with an RMSE of 0.857. The last model we tested was the matrix factorization model with ALS. This model performed the best with an RMSE of 0.793.
+
+
 ## Conclusion
+
+The regularization and matrix factorization models performed significantly better compared to the baseline model. The matrix factorization model's RMSE was even better than the winning RMSE of the Netflix challenge in 2009. 
+
+During this project, limited models were tested due to computing power. If more computing power would have been accessible, methods such as random forest, K-nearest neighbours, linear models, or ensemble models could have been tested. 
+
+Nevertheless, the results obtained during this project show a significant improvement of the RMSE. 
 
 ## References
 
 https://movielens.org/info/about
 
 Irizarry, Rafael A., “Introduction to Data Science: Data Analysis and Prediction Algorithms in R”
+
+Koren, Y., 2009. The BellKor Solution to the Netflix Grand Prize. 
